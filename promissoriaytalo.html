@@ -11,7 +11,16 @@
             --bg: #f1f5f9; --white: #ffffff; --border: #cbd5e1;
         }
         * { box-sizing: border-box; font-family: 'Inter', 'Segoe UI', sans-serif; }
-        body { margin: 0; display: flex; height: 100vh; background: var(--bg); color: #334155; }
+        body { margin: 0; display: flex; height: 100vh; background: var(--bg); color: #334155; overflow: hidden; }
+
+        /* Bloqueio do Sistema */
+        #lock-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.9); z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            color: white; text-align: center; backdrop-filter: blur(5px);
+        }
+        .lock-card { background: var(--white); padding: 40px; border-radius: 15px; color: var(--primary); box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5); }
 
         /* Menu Lateral */
         aside { width: 260px; background: var(--primary); color: white; display: flex; flex-direction: column; flex-shrink: 0; }
@@ -74,6 +83,14 @@
 </head>
 <body>
 
+<div id="lock-screen">
+    <div class="lock-card">
+        <h1 style="margin-top:0">Sistema Bloqueado</h1>
+        <p>Para utilizar o CRM, você precisa conectar o arquivo de banco de dados JSON.</p>
+        <button class="btn btn-sync" style="font-size: 1.1rem; padding: 15px 30px;" onclick="selecionarArquivoBanco()">📁 Conectar Banco de Dados agora</button>
+    </div>
+</div>
+
 <aside>
     <div class="nav-header">CRM SÊNIOR v2.0</div>
     <div class="menu-group">
@@ -86,9 +103,9 @@
         <div class="sync-bar">
             <div class="status-box">
                 <div id="status-dot" class="indicator"></div>
-                <span id="status-text">Não Conectado (Aguardando local)</span>
+                <span id="status-text">Conectado ao arquivo físico</span>
             </div>
-            <button class="btn btn-sync" onclick="selecionarArquivoBanco()">📁 Conectar/Sincronizar Banco JSON</button>
+            <button class="btn btn-sync" onclick="selecionarArquivoBanco()">🔄 Alterar/Sincronizar Arquivo</button>
         </div>
 
         <div class="card">
@@ -159,8 +176,10 @@
     let clientesDB = []; 
     const form = document.getElementById('cadastroForm');
 
-    // --- CRUD CLIENTES ---
+    // --- CRUD CLIENTES (Só funcionam se dbHandle existir) ---
     function salvarCliente() {
+        if (!dbHandle) return alert("Erro: Arquivo não conectado!");
+
         const cliente = {};
         const inputs = form.querySelectorAll('input');
         inputs.forEach(i => { if(i.id) cliente[i.id] = i.type === 'checkbox' ? i.checked : i.value; });
@@ -173,15 +192,7 @@
 
         renderClientes();
         limparFormulario();
-        autoSalvarArquivo(); // Salva no arquivo físico imediatamente
-    }
-
-    function carregarClientesLocal() {
-        const backup = localStorage.getItem('crm_clientes_temp');
-        if (backup) {
-            clientesDB = JSON.parse(backup);
-            renderClientes();
-        }
+        autoSalvarArquivo(); 
     }
 
     function renderClientes() {
@@ -218,72 +229,73 @@
     }
 
     function excluirCliente(id) {
+        if (!dbHandle) return alert("Erro: Arquivo não conectado!");
         if (confirm("Deseja excluir este cliente?")) {
             clientesDB = clientesDB.filter(c => c.id_cliente !== id);
             renderClientes();
-            autoSalvarArquivo(); // Atualiza o arquivo físico após exclusão
+            autoSalvarArquivo();
         }
     }
 
-    // --- SINCRONIZAÇÃO INTELIGENTE COM ARQUIVO ---
+    // --- SINCRONIZAÇÃO E BLOQUEIO ---
     async function selecionarArquivoBanco() {
         try {
-            // Abre o seletor de arquivo (se o arquivo existir, ele lê; se não, cria)
             dbHandle = await window.showOpenFilePicker({
                 multiple: false,
                 types: [{ description: 'JSON', accept: {'application/json': ['.json']} }]
             }).then(handles => handles[0]);
 
-            // Solicita permissão de escrita
             const options = { mode: 'readwrite' };
             if (await dbHandle.queryPermission(options) !== 'granted') {
                 await dbHandle.requestPermission(options);
             }
 
-            // LÓGICA DE CLONAGEM/SINCRONIA AO CONECTAR
             const file = await dbHandle.getFile();
             const content = await file.text();
 
             if (content && content.trim().length > 0) {
-                // Se o arquivo tem conteúdo, ele é a prioridade (Inteligência de troca de máquina)
                 clientesDB = JSON.parse(content);
-                console.log("Base carregada do arquivo externo.");
             } else {
-                // Se o arquivo estiver vazio, sobe o que está no localStorage para ele
-                console.log("Arquivo vazio. Sincronizando dados locais para o arquivo.");
+                // Se arquivo novo, usa o que tem no local storage ou inicia vazio
+                const local = localStorage.getItem('crm_clientes_temp');
+                if(local) clientesDB = JSON.parse(local);
                 await autoSalvarArquivo();
             }
 
-            atualizarStatus('verde', 'Sincronizado (Arquivo <-> Local)');
+            // DESBLOQUEIA O SISTEMA
+            document.getElementById('lock-screen').style.display = 'none';
+            document.body.style.overflow = 'auto';
+            
+            atualizarStatus('verde', 'Arquivo Conectado e Sincronizado');
             renderClientes();
 
         } catch (e) { 
             console.error(e);
-            atualizarStatus('vermelho', 'Erro na conexão com arquivo'); 
+            atualizarStatus('vermelho', 'Conexão Obrigatória Negada'); 
         }
     }
 
     async function autoSalvarArquivo() {
-        if (!dbHandle) {
-            console.warn("Sem arquivo conectado. Dados salvos apenas no navegador.");
-            return;
-        }
+        if (!dbHandle) return;
         try {
             const writable = await dbHandle.createWritable();
             await writable.write(JSON.stringify(clientesDB, null, 2));
             await writable.close();
-            atualizarStatus('verde', 'Sincronizado e Salvo');
+            atualizarStatus('verde', 'Arquivo Atualizado');
         } catch (e) { 
-            atualizarStatus('amarelo', 'Erro ao gravar no arquivo físico'); 
-            console.error("Erro no autosave:", e);
+            atualizarStatus('amarelo', 'Erro ao gravar arquivo físico'); 
         }
     }
 
     // --- AUXILIARES ---
     function atualizarStatus(cor, texto) {
         const cores = { verde: '#22c55e', amarelo: '#eab308', vermelho: '#ef4444' };
-        document.getElementById('status-dot').style.background = cores[cor];
-        document.getElementById('status-text').innerText = texto;
+        const dot = document.getElementById('status-dot');
+        const txt = document.getElementById('status-text');
+        if(dot && txt) {
+            dot.style.background = cores[cor];
+            txt.innerText = texto;
+        }
     }
 
     function trocarPagina(page, btn) {
@@ -305,7 +317,7 @@
 
     window.onload = () => {
         gerarID();
-        carregarClientesLocal();
+        // Não carregamos dados automaticamente para forçar o clique no arquivo
     };
 </script>
 </body>
