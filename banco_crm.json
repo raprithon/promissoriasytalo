@@ -1,1 +1,16 @@
-[]
+[
+  {
+    "id_cliente": "839",
+    "nome": "Raphael Chaves Rithon",
+    "cpf": "218.164.808-51",
+    "telefone": "88988867231",
+    "check_wpp": true,
+    "cep": "63113-582",
+    "logradouro": "Rua José Leal Neto",
+    "numero": "83",
+    "complemento": "",
+    "bairro": "Seminário",
+    "cidade": "Crato",
+    "uf": "CE"
+  }
+]
