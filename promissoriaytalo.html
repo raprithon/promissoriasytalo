@@ -88,7 +88,7 @@
                 <div id="status-dot" class="indicator"></div>
                 <span id="status-text">Não Conectado (Aguardando local)</span>
             </div>
-            <button class="btn btn-sync" onclick="selecionarArquivoBanco()">📁 Definir Local do Banco JSON</button>
+            <button class="btn btn-sync" onclick="selecionarArquivoBanco()">📁 Conectar/Sincronizar Banco JSON</button>
         </div>
 
         <div class="card">
@@ -173,10 +173,10 @@
 
         renderClientes();
         limparFormulario();
-        autoSalvarArquivo();
+        autoSalvarArquivo(); // Salva no arquivo físico imediatamente
     }
 
-    function carregarClientes() {
+    function carregarClientesLocal() {
         const backup = localStorage.getItem('crm_clientes_temp');
         if (backup) {
             clientesDB = JSON.parse(backup);
@@ -221,30 +221,62 @@
         if (confirm("Deseja excluir este cliente?")) {
             clientesDB = clientesDB.filter(c => c.id_cliente !== id);
             renderClientes();
-            autoSalvarArquivo();
+            autoSalvarArquivo(); // Atualiza o arquivo físico após exclusão
         }
     }
 
-    // --- ARQUIVO JSON EXTERNO ---
+    // --- SINCRONIZAÇÃO INTELIGENTE COM ARQUIVO ---
     async function selecionarArquivoBanco() {
         try {
-            dbHandle = await window.showSaveFilePicker({
-                suggestedName: 'banco_crm.json',
+            // Abre o seletor de arquivo (se o arquivo existir, ele lê; se não, cria)
+            dbHandle = await window.showOpenFilePicker({
+                multiple: false,
                 types: [{ description: 'JSON', accept: {'application/json': ['.json']} }]
-            });
-            atualizarStatus('verde', 'Sincronizado com Arquivo');
-            autoSalvarArquivo();
-        } catch (e) { atualizarStatus('vermelho', 'Erro ao abrir arquivo'); }
+            }).then(handles => handles[0]);
+
+            // Solicita permissão de escrita
+            const options = { mode: 'readwrite' };
+            if (await dbHandle.queryPermission(options) !== 'granted') {
+                await dbHandle.requestPermission(options);
+            }
+
+            // LÓGICA DE CLONAGEM/SINCRONIA AO CONECTAR
+            const file = await dbHandle.getFile();
+            const content = await file.text();
+
+            if (content && content.trim().length > 0) {
+                // Se o arquivo tem conteúdo, ele é a prioridade (Inteligência de troca de máquina)
+                clientesDB = JSON.parse(content);
+                console.log("Base carregada do arquivo externo.");
+            } else {
+                // Se o arquivo estiver vazio, sobe o que está no localStorage para ele
+                console.log("Arquivo vazio. Sincronizando dados locais para o arquivo.");
+                await autoSalvarArquivo();
+            }
+
+            atualizarStatus('verde', 'Sincronizado (Arquivo <-> Local)');
+            renderClientes();
+
+        } catch (e) { 
+            console.error(e);
+            atualizarStatus('vermelho', 'Erro na conexão com arquivo'); 
+        }
     }
 
     async function autoSalvarArquivo() {
-        if (!dbHandle) return;
+        if (!dbHandle) {
+            console.warn("Sem arquivo conectado. Dados salvos apenas no navegador.");
+            return;
+        }
         try {
             const writable = await dbHandle.createWritable();
             await writable.write(JSON.stringify(clientesDB, null, 2));
             await writable.close();
-            atualizarStatus('verde', 'Arquivo Atualizado');
-        } catch (e) { atualizarStatus('amarelo', 'Erro Autosalve'); }
+            atualizarStatus('verde', 'Sincronizado e Salvo');
+        } catch (e) { 
+            atualizarStatus('amarelo', 'Erro ao gravar no arquivo físico'); 
+            console.error("Erro no autosave:", e);
+        }
     }
 
     // --- AUXILIARES ---
@@ -273,7 +305,7 @@
 
     window.onload = () => {
         gerarID();
-        carregarClientes();
+        carregarClientesLocal();
     };
 </script>
 </body>
